@@ -443,6 +443,12 @@ def _conv(opname):
         return out
     return _impl
 
+def _placeholder_with_default():
+    def _impl(inputs, attr, params):
+        warnings.warn("PlaceholderWithDefault: It's a pass through, please handle preprocessing before input")
+        return inputs[0]
+    return _impl
+
 def _decode_image():
     def _impl(inputs, attr, params):
         # Image decode wrapper: Expecting user to feed decoded input to next layer drop this layer.
@@ -1112,6 +1118,7 @@ _convert_map = {
     'ConcatV2'                          : _concatV2(),
     'Conv2D'                            : _conv('conv'),
     'DecodeJpeg'                        : _decode_image(),
+    'PlaceholderWithDefault'            : _placeholder_with_default(),
     'DepthwiseConv2dNative'             : _conv('depthwise'),
     'Equal'                             : _broadcast('equal'),
     'Elu'                               : _elu(),
@@ -1703,6 +1710,7 @@ class GraphProto(object):
         for node in graph.node:
             node_name_prefix = node.name.rsplit('/', 1)[0]
             control_flow_node_map[node_name_prefix].add(node.op)
+            #if node.op == 'Placeholder' or node.op == 'PlaceholderWithDefault':
             if node.op == 'Placeholder':
                 # Give priority to user argument.
                 if shape and node.name in shape:
@@ -1723,6 +1731,26 @@ class GraphProto(object):
                                                     dtype=attr['dtype'].name)]
 
                 # Ignore user's input shape for Non placeholder
+            #elif node.op == 'PlaceholderWithDefault':
+            #    # Give priority to user argument.
+            #    if shape and node.name in shape:
+            #        self._input_shapes[node.name] = list(shape[node.name])
+            #    else:
+            #        self._input_shapes[node.name] = \
+            #            tensor_util.TensorShapeProtoToList(node.attr['shape'].shape)
+            #        for idx, dim in enumerate(self._input_shapes[node.name]):
+            #            if dim < 0:
+            #                self._input_shapes[node.name][idx] = 1
+            #                warnings.warn("Use 1 instead of -1 in shape of operator %s."
+            #                              % node.name)
+
+            #    self._output_shapes[node.name] = [self._input_shapes[node.name]]
+            #    attr = self._parse_attr(node.attr)
+            #    self._nodes[node.name] = [_expr.var(node.name,
+            #                                        shape=self._input_shapes[node.name],
+            #                                        dtype=attr['dtype'].name)]
+
+            #    # Ignore user's input shape for Non placeholder
             elif node.op == 'Const':
                 tensor_value = node.attr['value'].tensor
                 self._input_shapes[node.name] = \
@@ -1767,7 +1795,7 @@ class GraphProto(object):
                         "Const {} couldn't be converted to Param.".format(node.name))
 
                 attr = self._parse_attr(node.attr)
-
+            #elif node.op != "Placeholder" and node.op != "PlaceholderWithDefault":
             elif node.op != "Placeholder":
                 # Pass the parsed shapes instead
                 attr["_output_shapes"] = output_shapes = self._output_shapes[node.name]
@@ -1824,6 +1852,7 @@ class GraphProto(object):
                                                              attr,
                                                              control_flow_node_map)
                 else:
+                    #print("xychu node.op {}".format(node.op))
                     op = self._convert_operator(node.op, inputs, attr, graph)
 
                 # Check if op is converted to param
@@ -1901,6 +1930,8 @@ class GraphProto(object):
         for node in graph.node:
             if node.op == "Placeholder":
                 pass
+            #elif node.op == "PlaceholderWithDefault":
+            #    pass
             elif node.op == "Const":
                 pass
             else:
