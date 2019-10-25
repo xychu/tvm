@@ -152,7 +152,7 @@ def run_onnx_model(model_path, input_dict_list):
 
 def run_tvm_model(model_path, input_dict_list, shape_dict_list):
     model = onnx.load(model_path)
-    mod, params = relay.frontend.from_onnx(model, shape_dict)
+    mod, params = relay.frontend.from_onnx(model, shape_dict_list[0])
     with relay.build_config(opt_level=0):
         graph, lib, params = relay.build(mod, target='llvm', params=params)
     gmod = runtime.create(graph, lib, ctx=tvm.cpu())
@@ -174,4 +174,6 @@ if __name__ == "__main__":
     get_bert_files()
     input_dict_list, shape_dict_list, eval_examples, extra_data = prepare_inputs()
     onnx_results = run_onnx_model("bertsquad8.onnx", input_dict_list)
+    tvm_results = run_tvm_model("bertsquad8.onnx", input_dict_list, shape_dict_list)
     postprocess(onnx_results, "onnx_predictions", eval_examples, extra_data)
+    postprocess(tvm_results, "tvm_predictions", eval_examples, extra_data)
