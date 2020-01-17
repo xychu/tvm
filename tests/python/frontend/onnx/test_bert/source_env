@@ -1,0 +1,4 @@
+#!/bin/bash
+
+export TVM_HOME=/home/ethanchu/Workspace/python/jwfromm-tvm
+export PYTHONPATH=$TVM_HOME/python:$TVM_HOME/topi/python:${PYTHONPATH}

@@ -1,3 +1,4 @@
+import time
 import tvm
 from tvm import relay
 import numpy as np
@@ -105,6 +106,7 @@ def prepare_inputs():
     input_ids, input_mask, segment_ids, extra_data = convert_examples_to_features(eval_examples, tokenizer,
                                                                                   max_seq_length, doc_stride, max_query_length)
     n = len(input_ids)
+    print("input_ids:", n)
     input_dict_list = []
     shape_dict_list = []
     for idx in range(0, n):
@@ -141,12 +143,17 @@ def run_onnx_model(model_path, input_dict_list):
     all_results = []
     onnx_rt = ort.InferenceSession(model_path)
     n = len(input_dict_list)
+    #
+    onnx_rt.run(["unique_ids:0","unstack:0", "unstack:1"], input_dict_list[0])
+    #
+    s = time.time()
     for idx in range(0, n):
         result = onnx_rt.run(["unique_ids:0","unstack:0", "unstack:1"], input_dict_list[idx])
         start_logits = [float(x) for x in result[1][0].flat]
         end_logits = [float(x) for x in result[2][0].flat]
         unique_id = len(all_results)
         all_results.append(RawResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+    print("onnx time cost:", time.time() - s)
     return all_results
 
 
@@ -154,11 +161,17 @@ def run_tvm_model(model_path, input_dict_list, shape_dict_list):
     model = onnx.load(model_path)
     mod, params = relay.frontend.from_onnx(model, shape_dict_list[0])
     with relay.build_config(opt_level=0):
-        graph, lib, params = relay.build(mod, target='llvm', params=params)
+        #graph, lib, params = relay.build(mod, target='llvm', params=params)
+        graph, lib, params = relay.build(mod, target='llvm -mcpu=skylake', params=params)
     gmod = runtime.create(graph, lib, ctx=tvm.cpu())
     gmod.set_input(**params)
     n = len(input_dict_list)
     all_results = []
+    #
+    gmod.set_input(**input_dict_list[0])
+    gmod.run()
+    #
+    s = time.time()
     for idx in range(0, n):
         gmod.set_input(**input_dict_list[idx])
         gmod.run()
@@ -166,6 +179,7 @@ def run_tvm_model(model_path, input_dict_list, shape_dict_list):
         end_logits = [float(x) for x in gmod.get_output(0).asnumpy()[0].flat]
         unique_id = len(all_results)
         all_results.append(RawResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+    print("tvm time cost:", time.time() - s)
     return all_results
 
 
@@ -173,6 +187,7 @@ if __name__ == "__main__":
     generate_input()
     get_bert_files()
     input_dict_list, shape_dict_list, eval_examples, extra_data = prepare_inputs()
+    print("input_dict_lists:", len(input_dict_list))
     onnx_results = run_onnx_model("bertsquad8.onnx", input_dict_list)
     tvm_results = run_tvm_model("bertsquad8.onnx", input_dict_list, shape_dict_list)
     postprocess(onnx_results, "onnx_predictions", eval_examples, extra_data)
